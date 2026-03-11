@@ -1,0 +1,11 @@
+# Ignore Windows-specific binaries
+*win_amd64.whl
+
+# Ignore local environment and cache
+venv/
+__pycache__/
+.git/
+.env
+
+# Ignore the final export file if it's already in the folder
+*.tar
