@@ -10,92 +10,120 @@ DATA_FILE = 'sacco_members.csv'
 
 def save_data(df):
     df.to_csv(DATA_FILE, index=False)
-    # Genius tip: Clear cache so the app sees the new data immediately
     st.cache_data.clear()
 
 @st.cache_data
 def load_data():
     if os.path.exists(DATA_FILE):
         return pd.read_csv(DATA_FILE)
-    # Default structure if file is missing
-    return pd.DataFrame(columns=['Member_ID', 'Name', 'Savings_Balance_KES', 'Loan_Balance_KES', 'Churn_Risk'])
+    # Default sample structure
+    return pd.DataFrame(columns=['Member_ID', 'Name', 'Savings_Balance_KES', 'Loan_Balance_KES', 'Churn_Risk', 'Monthly_Income_KES'])
 
 # --- APP UI ---
-st.title("🛡️ SACCO_XAI: Management & Credit Scoring")
+st.title("🛡️ SACCO_XAI: Financial Intelligence")
 
-# Load existing data
 df = load_data()
 
-# Sidebar Navigation
-menu = st.sidebar.radio("Navigation", ["Dashboard", "Search & Credit Score", "Add/Upload Clients"])
+# Updated Navigation
+menu = st.sidebar.radio("Navigation", ["Dashboard", "Search & Credit Score"])
 
-# --- 1. ADD/UPLOAD CLIENTS ---
-if menu == "Add/Upload Clients":
-    st.subheader("📥 Data Ingestion")
+# --- 1. DASHBOARD (Instructions & Upload) ---
+if menu == "Dashboard":
+    st.subheader("📈 System Dashboard & Data Management")
     
-    tab1, tab2 = st.tabs(["Add Single Client", "Bulk Upload (CSV)"])
-    
-    with tab1:
-        with st.form("add_member_form", clear_on_submit=True):
-            m_id = st.text_input("Member ID (e.g., M-1001)")
-            name = st.text_input("Full Name")
-            savings = st.number_input("Savings Balance (KES)", min_value=0)
-            loans = st.number_input("Loan Balance (KES)", min_value=0)
-            submit = st.form_submit_button("Register Client")
-            
-            if submit:
-                new_row = pd.DataFrame([[m_id, name, savings, loans, 0]], 
-                                       columns=['Member_ID', 'Name', 'Savings_Balance_KES', 'Loan_Balance_KES', 'Churn_Risk'])
-                df = pd.concat([df, new_row], ignore_index=True)
-                save_data(df)
-                st.success(f"Client {name} added successfully!")
+    # Instructions Section
+    with st.expander("📝 Requirements for Data Upload (Read First)", expanded=True):
+        st.write("""
+        To ensure the AI calculates Credit Scores accurately, your CSV file must contain the following columns:
+        1. **Member_ID**: Unique identifier for the member.
+        2. **Name**: Full name of the member.
+        3. **Savings_Balance_KES**: Total current savings.
+        4. **Loan_Balance_KES**: Outstanding loan amount.
+        5. **Churn_Risk**: A value between 0 (Stable) and 1 (Likely to leave).
+        6. **Monthly_Income_KES**: Monthly earning of the member.
+        """)
 
-    with tab2:
-        st.write("Upload a CSV file with columns: `Member_ID`, `Name`, `Savings_Balance_KES`, `Loan_Balance_KES`, `Churn_Risk`")
-        uploaded_file = st.file_uploader("Upload Client CSV", type=["csv"])
+    # Data Operations
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        st.write("### Upload New Data")
+        uploaded_file = st.file_uploader("Choose a CSV file", type=["csv"])
         if uploaded_file:
-            new_data = pd.read_csv(uploaded_file)
-            # Merge and prevent duplicates based on ID
-            df = pd.concat([df, new_data], ignore_index=True).drop_duplicates(subset=['Member_ID'])
-            save_data(df)
-            st.success("Bulk data integrated successfully.")
+            new_df = pd.read_csv(uploaded_file)
+            if st.button("Confirm & Save Uploaded Data"):
+                save_data(new_df)
+                st.success("System data updated!")
+                st.rerun()
 
-# --- 2. SEARCH & CREDIT SCORE ---
-elif menu == "Search & Credit Score":
-    st.subheader("🔍 Individual Client Search")
-    
-    search_query = st.text_input("Enter Member ID or Name to Search")
-    
-    if search_query:
-        # Fuzzy search filter
-        results = df[df['Member_ID'].astype(str).str.contains(search_query, case=False, na=False) | 
-                    df['Name'].astype(str).str.contains(search_query, case=False, na=False)]
-        
-        if not results.empty:
-            for index, row in results.iterrows():
-                with st.expander(f"Results for: {row['Name']} ({row['Member_ID']})"):
-                    col1, col2 = st.columns(2)
-                    col1.write(f"**Savings:** KES {row['Savings_Balance_KES']:,.2f}")
-                    col1.write(f"**Loans:** KES {row['Loan_Balance_KES']:,.2f}")
-                    
-                    # Credit Score Calculation Logic
-                    # Derived from Risk Probability: Score ranges from 300 to 850
-                    risk_prob = row.get('Churn_Risk', 0.5)
-                    credit_score = int(850 - (risk_prob * 550))
-                    
-                    col2.metric("Credit Score", credit_score)
-                    if credit_score > 650:
-                        st.success("Status: Low Risk / High Creditworthiness")
-                    else:
-                        st.error("Status: High Risk / Action Required")
-        else:
-            st.warning("No client found with those details.")
+    with col2:
+        st.write("### Reset / Remove")
+        if st.button("🗑️ Clear All Data (Revert to Sample)"):
+            if os.path.exists(DATA_FILE):
+                os.remove(DATA_FILE)
+                st.cache_data.clear()
+                st.warning("All uploaded data removed. System reverted to sample.")
+                st.rerun()
 
-# --- 3. DASHBOARD ---
-else:
-    st.subheader("📈 SACCO Portfolio Overview")
-    st.write(f"Showing {len(df)} active records.")
+    st.divider()
+    st.write("### Current Database Preview")
     st.dataframe(df, use_container_width=True)
+
+# --- 2. SEARCH & CREDIT SCORE (Lookup & Advice) ---
+elif menu == "Search & Credit Score":
+    st.subheader("🔍 Member Credit Assessment")
+    
+    search_id = st.text_input("Enter Member ID to view full credit profile")
+    
+    if search_id:
+        # Exact ID match
+        result = df[df['Member_ID'].astype(str) == search_id]
+        
+        if not result.empty:
+            row = result.iloc[0]
+            st.success(f"Record Found: {row['Name']}")
+            
+            # Layout for Details
+            c1, c2, c3 = st.columns(3)
+            
+            # Credit Score Calculation
+            risk_prob = row.get('Churn_Risk', 0.5)
+            credit_score = int(850 - (risk_prob * 550))
+            
+            c1.metric("Credit Score", credit_score)
+            c2.metric("Savings Balance", f"KES {row['Savings_Balance_KES']:,.0f}")
+            c3.metric("Loan/Income Ratio", f"{(row['Loan_Balance_KES']/row.get('Monthly_Income_KES', 1))*100:.1f}%")
+
+            # Valuable Detailed Info
+            st.write("### Detailed Financial Profile")
+            st.json({
+                "Member Name": row['Name'],
+                "Current Debt": f"KES {row['Loan_Balance_KES']:,.2f}",
+                "Stability Index": "High" if risk_prob < 0.3 else "Moderate" if risk_prob < 0.7 else "Low",
+                "Monthly Income": f"KES {row.get('Monthly_Income_KES', 0):,.2f}"
+            })
+
+            # Genius Advice Section
+            st.divider()
+            st.write("### 💡 Financial Improvement Suggestions")
+            
+            advice = []
+            if credit_score < 750:
+                advice.append(f"**Increase Savings:** Current savings are {row['Savings_Balance_KES']/row.get('Monthly_Income_KES', 1):.1f}x monthly income. Aim for 3x to boost score.")
+            if row['Loan_Balance_KES'] > (row.get('Monthly_Income_KES', 0) * 5):
+                advice.append("**Debt Consolidation:** High loan-to-income ratio detected. Advise member to clear small debts first.")
+            if risk_prob > 0.5:
+                advice.append("**Engagement:** Member has low activity. Suggest enrolling in the 'Golden Member' savings plan to improve stability.")
+            
+            if advice:
+                for tip in advice:
+                    st.info(tip)
+            else:
+                st.balloons()
+                st.success("This member is in the top 1% of financial health. Eligible for maximum credit limit.")
+                
+        else:
+            st.error("No member found with that ID. Please check the Dashboard to ensure the data is uploaded.")
 
 st.sidebar.markdown("---")
 st.sidebar.write("Developed by Macfeigh Bitange")
