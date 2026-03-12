@@ -10,11 +10,14 @@ DATA_FILE = 'sacco_members.csv'
 
 def save_data(df):
     df.to_csv(DATA_FILE, index=False)
+    # Genius tip: Clear cache so the app sees the new data immediately
+    st.cache_data.clear()
 
 @st.cache_data
 def load_data():
     if os.path.exists(DATA_FILE):
         return pd.read_csv(DATA_FILE)
+    # Default structure if file is missing
     return pd.DataFrame(columns=['Member_ID', 'Name', 'Savings_Balance_KES', 'Loan_Balance_KES', 'Churn_Risk'])
 
 # --- APP UI ---
@@ -33,7 +36,7 @@ if menu == "Add/Upload Clients":
     tab1, tab2 = st.tabs(["Add Single Client", "Bulk Upload (CSV)"])
     
     with tab1:
-        with st.form("add_member_form"):
+        with st.form("add_member_form", clear_on_submit=True):
             m_id = st.text_input("Member ID (e.g., M-1001)")
             name = st.text_input("Full Name")
             savings = st.number_input("Savings Balance (KES)", min_value=0)
@@ -48,9 +51,11 @@ if menu == "Add/Upload Clients":
                 st.success(f"Client {name} added successfully!")
 
     with tab2:
+        st.write("Upload a CSV file with columns: `Member_ID`, `Name`, `Savings_Balance_KES`, `Loan_Balance_KES`, `Churn_Risk`")
         uploaded_file = st.file_uploader("Upload Client CSV", type=["csv"])
         if uploaded_file:
             new_data = pd.read_csv(uploaded_file)
+            # Merge and prevent duplicates based on ID
             df = pd.concat([df, new_data], ignore_index=True).drop_duplicates(subset=['Member_ID'])
             save_data(df)
             st.success("Bulk data integrated successfully.")
@@ -62,9 +67,9 @@ elif menu == "Search & Credit Score":
     search_query = st.text_input("Enter Member ID or Name to Search")
     
     if search_query:
-        # Search filter
-        results = df[df['Member_ID'].str.contains(search_query, case=False, na=False) | 
-                    df['Name'].str.contains(search_query, case=False, na=False)]
+        # Fuzzy search filter
+        results = df[df['Member_ID'].astype(str).str.contains(search_query, case=False, na=False) | 
+                    df['Name'].astype(str).str.contains(search_query, case=False, na=False)]
         
         if not results.empty:
             for index, row in results.iterrows():
@@ -74,6 +79,7 @@ elif menu == "Search & Credit Score":
                     col1.write(f"**Loans:** KES {row['Loan_Balance_KES']:,.2f}")
                     
                     # Credit Score Calculation Logic
+                    # Derived from Risk Probability: Score ranges from 300 to 850
                     risk_prob = row.get('Churn_Risk', 0.5)
                     credit_score = int(850 - (risk_prob * 550))
                     
@@ -88,4 +94,8 @@ elif menu == "Search & Credit Score":
 # --- 3. DASHBOARD ---
 else:
     st.subheader("📈 SACCO Portfolio Overview")
+    st.write(f"Showing {len(df)} active records.")
     st.dataframe(df, use_container_width=True)
+
+st.sidebar.markdown("---")
+st.sidebar.write("Developed by Macfeigh Bitange")
