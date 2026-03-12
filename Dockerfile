@@ -1,19 +1,20 @@
-# Use a lightweight Python base
 FROM python:3.12-slim
 
-# Set the working directory
+# Install system dependencies needed for SHAP/XGBoost
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
-# 1. Copy everything (All your code + the mountain of .whl files)
+# 1. Install dependencies from the internet
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 2. Copy the rest of the code
 COPY . .
 
-# 2. Install EVERYTHING from the local folder ONLY
-# This tells Docker: "Don't go to the internet, use the files I provided."
-RUN pip install --no-cache-dir --no-index --find-links . -r requirements.txt
+EXPOSE 10000
 
-# 3. Clean up the installation files to keep the image small
-RUN rm *.whl
-
-# 4. Network and Execution
-EXPOSE 8501
-ENTRYPOINT ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+# Render uses port 10000 by default, let's match it
+ENTRYPOINT ["streamlit", "run", "app.py", "--server.port=10000", "--server.address=0.0.0.0"]
