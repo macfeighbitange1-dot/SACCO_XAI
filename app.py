@@ -1,77 +1,91 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
-import xgboost as xgb
-import shap
-import matplotlib.pyplot as plt
+import os
 
 # Page Config
-st.set_page_config(page_title="SACCO_XAI | Predictive Intelligence", layout="wide")
+st.set_page_config(page_title="SACCO_XAI | Core Engine", layout="wide")
 
-st.title("📊 SACCO Member Retention & XAI Dashboard")
-st.markdown("---")
+# --- DATA PERSISTENCE LOGIC ---
+DATA_FILE = 'sacco_members.csv'
 
-# 1. Load Data
+def save_data(df):
+    df.to_csv(DATA_FILE, index=False)
+
 @st.cache_data
 def load_data():
-    try:
-        # UPDATED: Matches your 'sacco_members.csv' filename
-        return pd.read_csv('sacco_members.csv')
-    except Exception as e:
-        # Fallback if file isn't found
-        return pd.DataFrame({'Error': [f'Data file not found: {str(e)}']})
+    if os.path.exists(DATA_FILE):
+        return pd.read_csv(DATA_FILE)
+    return pd.DataFrame(columns=['Member_ID', 'Name', 'Savings_Balance_KES', 'Loan_Balance_KES', 'Churn_Risk'])
 
+# --- APP UI ---
+st.title("🛡️ SACCO_XAI: Management & Credit Scoring")
+
+# Load existing data
 df = load_data()
 
-# Check if data loaded correctly before proceeding
-if 'Error' in df.columns:
-    st.error(df['Error'][0])
-    st.stop()
+# Sidebar Navigation
+menu = st.sidebar.radio("Navigation", ["Dashboard", "Search & Credit Score", "Add/Upload Clients"])
 
-# 2. Sidebar for Navigation
-st.sidebar.header("Control Panel")
-analysis_type = st.sidebar.selectbox("Select View", ["Member Overview", "Individual Risk Analysis"])
-
-if analysis_type == "Member Overview":
-    st.subheader("Member Demographics & Churn Risk")
+# --- 1. ADD/UPLOAD CLIENTS ---
+if menu == "Add/Upload Clients":
+    st.subheader("📥 Data Ingestion")
     
-    # Calculate Metrics
-    total_members = len(df)
-    at_risk = len(df[df['Churn_Risk'] == 1]) if 'Churn_Risk' in df.columns else 0
-    avg_savings = df['Savings_Balance_KES'].mean() if 'Savings_Balance_KES' in df.columns else 0
-
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Total Members", total_members)
-    col2.metric("At-Risk Members", at_risk)
-    col3.metric("Avg Savings (KES)", f"{avg_savings:,.2f}")
+    tab1, tab2 = st.tabs(["Add Single Client", "Bulk Upload (CSV)"])
     
-    st.write("### Recent Member Log")
-    st.dataframe(df.head(20), use_container_width=True)
+    with tab1:
+        with st.form("add_member_form"):
+            m_id = st.text_input("Member ID (e.g., M-1001)")
+            name = st.text_input("Full Name")
+            savings = st.number_input("Savings Balance (KES)", min_value=0)
+            loans = st.number_input("Loan Balance (KES)", min_value=0)
+            submit = st.form_submit_button("Register Client")
+            
+            if submit:
+                new_row = pd.DataFrame([[m_id, name, savings, loans, 0]], 
+                                       columns=['Member_ID', 'Name', 'Savings_Balance_KES', 'Loan_Balance_KES', 'Churn_Risk'])
+                df = pd.concat([df, new_row], ignore_index=True)
+                save_data(df)
+                st.success(f"Client {name} added successfully!")
 
-elif analysis_type == "Individual Risk Analysis":
-    st.subheader("Explainable AI: Why is this member at risk?")
+    with tab2:
+        uploaded_file = st.file_uploader("Upload Client CSV", type=["csv"])
+        if uploaded_file:
+            new_data = pd.read_csv(uploaded_file)
+            df = pd.concat([df, new_data], ignore_index=True).drop_duplicates(subset=['Member_ID'])
+            save_data(df)
+            st.success("Bulk data integrated successfully.")
+
+# --- 2. SEARCH & CREDIT SCORE ---
+elif menu == "Search & Credit Score":
+    st.subheader("🔍 Individual Client Search")
     
-    if 'Member_ID' in df.columns:
-        member_id = st.selectbox("Select Member ID", df['Member_ID'].unique())
+    search_query = st.text_input("Enter Member ID or Name to Search")
+    
+    if search_query:
+        # Search filter
+        results = df[df['Member_ID'].str.contains(search_query, case=False, na=False) | 
+                    df['Name'].str.contains(search_query, case=False, na=False)]
         
-        # Filter data for the specific member
-        member_row = df[df['Member_ID'] == member_id]
-        # Drop non-feature columns for display
-        display_data = member_row.drop(['Member_ID'], axis=1, errors='ignore')
-        
-        st.write(f"Analyzing Member: **{member_id}**")
-        
-        # Visual Indicators
-        risk_status = "High Risk" if member_row['Churn_Risk'].values[0] == 1 else "Low Risk"
-        color = "red" if risk_status == "High Risk" else "green"
-        st.markdown(f"Status: **:{color}[{risk_status}]**")
-        
-        # Data Table
-        st.table(display_data)
-        
-        st.info("💡 SHAP Explanations: In the live model, a Force Plot would appear here to show exactly which features (e.g., Low Savings or High Defaults) pushed this member toward Churn.")
-    else:
-        st.warning("Member_ID column not found in data.")
+        if not results.empty:
+            for index, row in results.iterrows():
+                with st.expander(f"Results for: {row['Name']} ({row['Member_ID']})"):
+                    col1, col2 = st.columns(2)
+                    col1.write(f"**Savings:** KES {row['Savings_Balance_KES']:,.2f}")
+                    col1.write(f"**Loans:** KES {row['Loan_Balance_KES']:,.2f}")
+                    
+                    # Credit Score Calculation Logic
+                    risk_prob = row.get('Churn_Risk', 0.5)
+                    credit_score = int(850 - (risk_prob * 550))
+                    
+                    col2.metric("Credit Score", credit_score)
+                    if credit_score > 650:
+                        st.success("Status: Low Risk / High Creditworthiness")
+                    else:
+                        st.error("Status: High Risk / Action Required")
+        else:
+            st.warning("No client found with those details.")
 
-st.sidebar.markdown("---")
-st.sidebar.write("Developed by Macfeigh Bitange")
+# --- 3. DASHBOARD ---
+else:
+    st.subheader("📈 SACCO Portfolio Overview")
+    st.dataframe(df, use_container_width=True)
